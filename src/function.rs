@@ -94,7 +94,7 @@ fn arch(_context: &FunctionContext) -> Result<String, String> {
 }
 
 fn capitalize(_context: &FunctionContext, s: &str) -> Result<String, String> {
-  let mut capitalized = String::new();
+  let mut capitalized = String::with_capacity(s.len());
   for (i, c) in s.chars().enumerate() {
     if i == 0 {
       capitalized.extend(c.to_uppercase());
@@ -106,30 +106,33 @@ fn capitalize(_context: &FunctionContext, s: &str) -> Result<String, String> {
 }
 
 fn clean(_context: &FunctionContext, path: &str) -> Result<String, String> {
-  Ok(Path::new(path).lexiclean().to_str().unwrap().to_owned())
+  Ok(
+    Path::new(path)
+      .lexiclean()
+      .into_os_string()
+      .into_string()
+      .unwrap(),
+  )
 }
 
 fn env_var(context: &FunctionContext, key: &str) -> Result<String, String> {
-  use std::env::VarError::*;
-
-  if let Some(value) = context.dotenv.get(key) {
-    return Ok(value.clone());
-  }
-
-  match env::var(key) {
-    Err(NotPresent) => Err(format!("environment variable `{}` not present", key)),
-    Err(NotUnicode(os_string)) => Err(format!(
-      "environment variable `{}` not unicode: {:?}",
-      key, os_string
-    )),
-    Ok(value) => Ok(value),
-  }
+  env_var_or_else(context, key, || {
+    Err(format!("environment variable `{}` not present", key))
+  })
 }
 
 fn env_var_or_default(
   context: &FunctionContext,
   key: &str,
   default: &str,
+) -> Result<String, String> {
+  env_var_or_else(context, key, || Ok(default.to_owned()))
+}
+
+fn env_var_or_else(
+  context: &FunctionContext,
+  key: &str,
+  or_else: impl FnOnce() -> Result<String, String>,
 ) -> Result<String, String> {
   use std::env::VarError::*;
 
@@ -138,7 +141,7 @@ fn env_var_or_default(
   }
 
   match env::var(key) {
-    Err(NotPresent) => Ok(default.to_owned()),
+    Err(NotPresent) => or_else(),
     Err(NotUnicode(os_string)) => Err(format!(
       "environment variable `{}` not unicode: {:?}",
       key, os_string
@@ -294,7 +297,7 @@ fn replace_regex(
     Regex::new(regex)
       .map_err(|err| err.to_string())?
       .replace_all(s, replacement)
-      .to_string(),
+      .into_owned(),
   )
 }
 
@@ -383,5 +386,5 @@ fn without_extension(_context: &FunctionContext, path: &str) -> Result<String, S
     .file_stem()
     .ok_or_else(|| format!("Could not extract file stem from `{}`", path))?;
 
-  Ok(parent.join(file_stem).to_string())
+  Ok(parent.join(file_stem).into_string())
 }
